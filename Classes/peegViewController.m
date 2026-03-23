@@ -10,14 +10,24 @@ enum mySoundIds {
 	AUDIOEFFECT
 };
 
-@interface peegViewController()
-	@property (nonatomic, retain) CMOpenALSoundManager *soundMgr;
-@end
-
 @implementation peegViewController
 
 @synthesize soundMgr;
 @synthesize touchPitch;
+
+- (void)loadView {
+	UIView *rootView = [[[UIView alloc] initWithFrame:[[UIScreen mainScreen] bounds]] autorelease];
+	rootView.backgroundColor = [UIColor blackColor];
+
+	UIImage *snortImage = [UIImage imageNamed:@"snort.png"];
+	snortView = [[UIImageView alloc] initWithImage:snortImage];
+	snortView.frame = rootView.bounds;
+	snortView.contentMode = UIViewContentModeScaleAspectFit;
+	snortView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+	[rootView addSubview:snortView];
+
+	self.view = rootView;
+}
 
 - (BOOL)canBecomeFirstResponder {
 	return YES;
@@ -40,11 +50,14 @@ enum mySoundIds {
 
 - (void)updatePitchFromTouches:(NSSet *)touches{
 	UITouch * touch = [touches anyObject];
-	CGPoint pos = [touch locationInView: [UIApplication sharedApplication].keyWindow];
+	CGPoint pos = [touch locationInView:self.view];
+	CGFloat height = CGRectGetHeight(self.view.bounds);
+	if (height <= 0.0f) {
+		height = 1.0f;
+	}
 	NSLog(@"Position of touch: %.3f, %.3f", pos.x, pos.y);
-	//Height ranges from 1 - 480 => top - bottom
-	//Usable pitch is in the range of: 0.6 - 1.4
-	self.touchPitch = (pos.y / 480) + 0.5;
+	// Scale pitch to the current screen height instead of the original 480pt display.
+	self.touchPitch = (pos.y / height) + 0.5f;
 	NSLog(@"Touch pitch value: %.3f", self.touchPitch);
 	
 	soundMgr.pitch = self.touchPitch;
@@ -97,9 +110,9 @@ enum mySoundIds {
 
 
 - (void)dealloc {
-	[soundMgr dealloc];
-	
-    [super dealloc];
+	[snortView release];
+	[soundMgr release];
+	[super dealloc];
 }
 
 @end

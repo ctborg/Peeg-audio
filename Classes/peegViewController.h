@@ -10,9 +10,9 @@
 	float touchPitch;
 }
 
+@property (nonatomic, retain) CMOpenALSoundManager *soundMgr;
 @property (nonatomic) float touchPitch;
 
 - (void)updatePitchFromTouches:(NSSet *)touches;
 
 @end
-

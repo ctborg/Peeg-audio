@@ -39,25 +39,6 @@
 - (BOOL) startupOpenAL;
 @end
 
-//audio interruption callback...
-void interruptionListenerCallback (void *inUserData, UInt32 interruptionState) 
-{
-    CMOpenALSoundManager *soundMgr = (CMOpenALSoundManager *) inUserData;
-	
-    if (interruptionState == kAudioSessionBeginInterruption) 
-	{		
-		debug(@"Start audio interruption");
-		[soundMgr beginInterruption];
-		soundMgr.interrupted = YES;
-    } 
-	else if ((interruptionState == kAudioSessionEndInterruption) && soundMgr.interrupted)
-	{
-		debug(@"Stop audio interruption");
-		[soundMgr endInterruption];
-        soundMgr.interrupted = NO;
-    }
-}
-
 @implementation CMOpenALSoundManager
 @synthesize soundDictionary, soundFileNames, backgroundAudio, isiPodAudioPlaying, interrupted, currentBackgroundAudioFile, pitch;
 
@@ -72,12 +53,10 @@ SYNTHESIZE_SINGLETON_FOR_CLASS(CMOpenALSoundManager);
 	self = [super init];		
 	if (self != nil) 
 	{		
-		//create audio session.
-		OSStatus status = AudioSessionInitialize(NULL, NULL, interruptionListenerCallback, self);
-		if (status != kAudioSessionNoError) 
-		{
-			debug(@"AudioSessionInitialize failed! %d", status);	
-		}
+		[[NSNotificationCenter defaultCenter] addObserver:self
+												 selector:@selector(handleAudioSessionInterruption:)
+													 name:AVAudioSessionInterruptionNotification
+												   object:[AVAudioSession sharedInstance]];
 				
 		self.soundDictionary = [NSMutableDictionary dictionary];
 		self.soundEffectsVolume = 1.0;
@@ -113,6 +92,8 @@ SYNTHESIZE_SINGLETON_FOR_CLASS(CMOpenALSoundManager);
 - (void) dealloc
 {
 	debug(@"CMOpenALSoundManager dealloc");
+
+	[[NSNotificationCenter defaultCenter] removeObserver:self];
 	
 	[self shutdownOpenAL];
 	
@@ -135,15 +116,18 @@ SYNTHESIZE_SINGLETON_FOR_CLASS(CMOpenALSoundManager);
 	
 	//Get active context (there can only be one)
     context = alcGetCurrentContext();
+	if(!context) return;
 	
     //Get device for active context
     device = alcGetContextsDevice(context);
+
+	alcMakeContextCurrent(NULL);
 	
     //Release context
     alcDestroyContext(context);
 	
     //Close device
-    alcCloseDevice(device);
+    if(device) alcCloseDevice(device);
 }
 
 #pragma mark -
@@ -156,20 +140,12 @@ SYNTHESIZE_SINGLETON_FOR_CLASS(CMOpenALSoundManager);
 	[self purgeSounds];
 	[self shutdownOpenAL];
 	
-	if(!self.isiPodAudioPlaying)
+	NSError *error = nil;
+	[[AVAudioSession sharedInstance] setActive:NO error:&error];
+	if(error)
 	{
-		UInt32	sessionCategory = kAudioSessionCategory_MediaPlayback;
-		AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(sessionCategory), &sessionCategory);
-		AudioSessionSetActive(YES);
+		debug(@"Failed to deactivate AVAudioSession: %@", error);
 	}
-	else
-	{
-		UInt32	sessionCategory = kAudioSessionCategory_UserInterfaceSoundEffects;
-		AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(sessionCategory), &sessionCategory);
-		AudioSessionSetActive(YES);
-	}
-	
-	AudioSessionSetActive(NO);
 }
 
 - (void) endInterruption
@@ -177,39 +153,59 @@ SYNTHESIZE_SINGLETON_FOR_CLASS(CMOpenALSoundManager);
 	debug(@"end interruption");	
 	[self setupAudioCategorySilenceIpod: NO];
 	[self startupOpenAL];	
-	
-	AudioSessionSetActive(YES);
+
+	NSError *error = nil;
+	[[AVAudioSession sharedInstance] setActive:YES error:&error];
+	if(error)
+	{
+		debug(@"Failed to activate AVAudioSession: %@", error);
+	}
 }
 
 - (void) setupAudioCategorySilenceIpod:(BOOL)silenceIpod;
 {
-	UInt32 audioIsAlreadyPlaying;
-	UInt32 propertySize = sizeof(audioIsAlreadyPlaying);
-	
-	
-	//query audio hw to see if ipod is playing...
-	OSStatus err = AudioSessionGetProperty(kAudioSessionProperty_OtherAudioIsPlaying, &propertySize, &audioIsAlreadyPlaying);	
-	if(err)
-		debug(@"AudioSessionGetProperty error:%i",err);
+	AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+	BOOL audioIsAlreadyPlaying = [audioSession isOtherAudioPlaying];
+	NSError *error = nil;
 
-	debug(@"kAudioSessionProperty_OtherAudioIsPlaying = %@", audioIsAlreadyPlaying ? @"YES" : @"NO");
+	debug(@"isOtherAudioPlaying = %@", audioIsAlreadyPlaying ? @"YES" : @"NO");
 	
 	if(audioIsAlreadyPlaying && !silenceIpod)
 	{
 		self.isiPodAudioPlaying = YES;
 		
-		//register session as ambient sound so our effects mix with ipod audio
-		UInt32	sessionCategory = kAudioSessionCategory_AmbientSound;
-		AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(sessionCategory), &sessionCategory);		
+		[audioSession setCategory:AVAudioSessionCategoryAmbient error:&error];
 	}
 	else
 	{
 		self.isiPodAudioPlaying = NO;
 		
-		//register session as solo ambient sound so the ipod is silenced, and we can use hardware codecs for background audio
-		UInt32	sessionCategory = kAudioSessionCategory_SoloAmbientSound;
-		AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(sessionCategory), &sessionCategory);		
-	}		
+		[audioSession setCategory:AVAudioSessionCategorySoloAmbient error:&error];
+	}
+
+	if(error)
+	{
+		debug(@"Failed to configure AVAudioSession category: %@", error);
+	}
+}
+
+- (void) handleAudioSessionInterruption:(NSNotification *)notification
+{
+	NSDictionary *userInfo = [notification userInfo];
+	NSNumber *typeNumber = [userInfo objectForKey:AVAudioSessionInterruptionTypeKey];
+
+	if([typeNumber unsignedIntegerValue] == AVAudioSessionInterruptionTypeBegan)
+	{
+		debug(@"Start audio interruption");
+		[self beginInterruption];
+		self.interrupted = YES;
+	}
+	else if(self.interrupted)
+	{
+		debug(@"Stop audio interruption");
+		[self endInterruption];
+		self.interrupted = NO;
+	}
 }
 
 #pragma mark -

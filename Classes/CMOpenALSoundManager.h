@@ -65,6 +65,7 @@
 - (void) stopBackgroundMusic;
 - (void) pauseBackgroundMusic;
 - (void) resumeBackgroundMusic;
+- (void) handleAudioSessionInterruption:(NSNotification *)notification;
 
 - (void) playSoundWithID:(NSUInteger)soundID;	//id is the index in the sound filename array
 - (void) stopSoundWithID:(NSUInteger)soundID;

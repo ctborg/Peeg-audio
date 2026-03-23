@@ -7,13 +7,17 @@
 
 #define DOCUMENTS_FOLDER [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"]
 
+@interface recordAudioController ()
+- (void)showAlertWithMessage:(NSString *)message;
+@end
+
 @implementation recordAudioController
 - (IBAction)buttonPressed{
-	[recordAudioController startRecording];
+	[self startRecording];
 }
 - (void) startRecording{
 	
-	UIBarButtonItem *stopButton = [[UIBarButtonItem alloc] initWithTitle:@"Stop" style:UIBarButtonItemStyleBordered  target:self action:@selector(stopRecording)];
+	UIBarButtonItem *stopButton = [[UIBarButtonItem alloc] initWithTitle:@"Stop" style:UIBarButtonItemStylePlain  target:self action:@selector(stopRecording)];
 	self.navigationItem.rightBarButtonItem = stopButton;
 	[stopButton release];
 	
@@ -50,40 +54,54 @@
 	
 	NSURL *url = [NSURL fileURLWithPath:recorderFilePath];
 	err = nil;
-	AVAudioRecorder *recorder = [[ AVAudioRecorder alloc] initWithURL:url settings:recordSetting error:&err];
-	if(!recorder){
+	AVAudioRecorder *newRecorder = [[AVAudioRecorder alloc] initWithURL:url settings:recordSetting error:&err];
+	if(!newRecorder){
         NSLog(@"recorder: %@ %d %@", [err domain], [err code], [[err userInfo] description]);
-        UIAlertView *alert =
-        [[UIAlertView alloc] initWithTitle: @"Warning"
-								   message: [err localizedDescription]
-								  delegate: nil
-						 cancelButtonTitle:@"OK"
-						 otherButtonTitles:nil];
-        [alert show];
-        [alert release];
+		[self showAlertWithMessage:[err localizedDescription]];
+		[recordSetting release];
+		[recorderFilePath release];
         return;
 	}
 	
 	//prepare to record
-	//[recorder setDelegate:self];
-	[recorder prepareToRecord];
-	recorder.meteringEnabled = YES;
+	//[newRecorder setDelegate:self];
+	[newRecorder prepareToRecord];
+	newRecorder.meteringEnabled = YES;
 	
-	BOOL audioHWAvailable = audioSession.inputIsAvailable;
+	BOOL audioHWAvailable = [audioSession availableInputs] != nil;
 	if (! audioHWAvailable) {
-        UIAlertView *cantRecordAlert =
-        [[UIAlertView alloc] initWithTitle: @"Warning"
-								   message: @"Audio input hardware not available"
-								  delegate: nil
-						 cancelButtonTitle:@"OK"
-						 otherButtonTitles:nil];
-        [cantRecordAlert show];
-        [cantRecordAlert release]; 
+		[self showAlertWithMessage:@"Audio input hardware not available"];
+		[newRecorder release];
+		[recordSetting release];
+		[recorderFilePath release];
         return;
 	}
 	
+	[recorder release];
+	recorder = newRecorder;
+
 	// start recording
 	[recorder recordForDuration:(NSTimeInterval) 10];
+	[recordSetting release];
+	[recorderFilePath release];
+}
+
+- (void)stopRecording
+{
+	[recorder stop];
+	self.navigationItem.rightBarButtonItem = nil;
+}
+
+- (void)showAlertWithMessage:(NSString *)message
+{
+	UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"Warning"
+																			 message:message
+																	  preferredStyle:UIAlertControllerStyleAlert];
+	UIAlertAction *dismissAction = [UIAlertAction actionWithTitle:@"OK"
+															style:UIAlertActionStyleDefault
+														  handler:nil];
+	[alertController addAction:dismissAction];
+	[self presentViewController:alertController animated:YES completion:nil];
 }
 
 - (void)didReceiveMemoryWarning {
@@ -100,6 +118,7 @@
 
 
 - (void)dealloc {
+	[recorder release];
     [super dealloc];
 }
 
